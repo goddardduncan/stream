@@ -1,1 +1,5 @@
-code
+[Service]
+User=duncan
+WorkingDirectory=/home/duncan/MovieCast
+ExecStart=/usr/bin/python3 /home/duncan/MovieCast/server.py
+Restart=always
