@@ -1,1 +1,12 @@
-code
+[Unit]
+Description=Video Watch Folder to MP4
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/duncan/watch_and_convert.py
+Restart=always
+User=duncan
+WorkingDirectory=/home/duncan
+
+[Install]
+WantedBy=multi-user.target
