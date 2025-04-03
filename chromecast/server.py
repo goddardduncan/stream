@@ -4,7 +4,8 @@ import urllib.parse
 import subprocess
 
 # 🛠️ Hardcoded for your setup
-MEDIA_DIR = "media"
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+MEDIA_DIR = os.path.join(APP_ROOT, "media")
 current_path = os.path.abspath(MEDIA_DIR)
 PORT = 8000
 PI_IP = "192.168.68.71"
