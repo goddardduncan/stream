@@ -1,105 +1,129 @@
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
+import re
 import urllib.parse
+import requests
 import subprocess
+from collections import defaultdict
 
-# 🛠️ Hardcoded for your setup
+# === CONFIG ===
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 MEDIA_DIR = os.path.join(APP_ROOT, "media")
-current_path = os.path.abspath(MEDIA_DIR)
-PORT = 8000
 PI_IP = "192.168.68.71"
+PORT = 8000
 CHROMECAST_NAME = "Living Room TV"
+OMDB_API_KEY = "98eb08a4"
+VIDEO_EXTENSIONS = (".mp4", ".mkv", ".avi", ".m4v")
+CATT_PATH = "/home/duncan/.local/bin/catt"  # Adjust if needed
 
-class LANCastHandler(SimpleHTTPRequestHandler):
-    def list_files(self):
-        entries = os.listdir(current_path)
-        folders = []
-        files = []
+movie_metadata = defaultdict(dict)
 
-        for entry in entries:
-            if entry.startswith(".") or entry == "Program":
-                continue
-            path = os.path.join(current_path, entry)
-            if os.path.isdir(path):
-                folders.append(f"[{entry}]")
-            elif os.path.isfile(path):
-                if not entry.endswith(".c"):
-                    files.append(entry)
+def clean_title(filename):
+    filename = os.path.splitext(filename)[0]
+    filename = re.sub(r'\[.*?\]|\(.*?\)|\d{3,4}p|bluray|x264|dvdrip|hdtv|aac|mp3', '', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'\d{4}', '', filename)
+    filename = re.sub(r'[\._\-]', ' ', filename)
+    return filename.strip()
 
-        folders.sort(key=lambda x: x.lower())
-        files.sort(key=lambda x: x.lower())
+def fetch_movie_info(title):
+    url = f"http://www.omdbapi.com/?apikey={OMDB_API_KEY}&t={urllib.parse.quote(title)}"
+    try:
+        r = requests.get(url)
+        data = r.json()
+        if data.get("Response") == "True":
+            return {
+                "Title": data.get("Title"),
+                "Year": data.get("Year"),
+                "IMDb Rating": data.get("imdbRating"),
+                "Plot": data.get("Plot"),
+                "Poster": data.get("Poster"),
+            }
+    except Exception as e:
+        print("Fetch error:", e)
+    return None
 
-        items = []
-        if current_path != os.path.abspath(MEDIA_DIR):
-            items.append('<li><a href="/navigate?dir=..">(Back)</a></li>')
+def load_metadata():
+    for root, _, files in os.walk(MEDIA_DIR):
+        folder = os.path.relpath(root, MEDIA_DIR)
+        for file in files:
+            if file.lower().endswith(VIDEO_EXTENSIONS):
+                title = clean_title(file)
+                if file not in movie_metadata[folder]:
+                    info = fetch_movie_info(title)
+                    if info:
+                        movie_metadata[folder][file] = info
 
-        for folder in folders:
-            name = folder.strip("[]")
-            items.append(f'<li><a href="/navigate?dir={urllib.parse.quote(name)}">{folder}</a></li>')
-
-        for f in files:
-            items.append(f'<li><a href="/cast?file={urllib.parse.quote(f)}">{f}</a></li>')
-
-        return "\n".join(items)
-
-    def do_GET(self):
-        global current_path
-        parsed = urllib.parse.urlparse(self.path)
-        params = urllib.parse.parse_qs(parsed.query)
-
-        def get_head(title):
-            return f"""
-            <head>
+class BannerHandler(SimpleHTTPRequestHandler):
+    def get_head(self, title="Movie Caster"):
+        return f"""
+        <head>
             <title>{title}</title>
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
                 body {{
-                    font-family: monospace;
                     background: #111;
                     color: #eee;
-                    padding: 5vw;
-                    font-size: 1.2em;
+                    font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+                    margin: 0;
+                    padding: 0;
                 }}
-                a {{
-                    color: #6cf;
-                    text-decoration: none;
-                }}
-                li {{
-                    margin: 4vw 0;
-                    font-size: 1.1em;
-                }}
-                h1, h2 {{
+                h1 {{
                     color: hotpink;
-                    font-size: 1.5em;
-                    margin-bottom: 1em;
+                    text-align: center;
+                    margin: 2vw;
                 }}
-                .stop-button {{
-                    display: inline-block;
-                    margin: 5vw 2vw 5vw 0;
-                    padding: 4vw 6vw;
-                    background: hotpink;
-                    color: black;
-                    font-weight: bold;
-                    text-decoration: none;
-                    border-radius: 1em;
-                    font-size: 1em;
+                h2 {{
+                    color: #6cf;
+                    margin: 1vw 2vw 0.5vw;
                 }}
-                .playpause-button {{
-                    display: inline-block;
-                    margin: 5vw 0;
-                    padding: 4vw 6vw;
-                    background: #6f6;
-                    color: black;
-                    font-weight: bold;
-                    text-decoration: none;
+                .banner {{
+                    display: flex;
+                    overflow-x: auto;
+                    gap: 20px;
+                    padding: 2vw;
+                    scroll-behavior: smooth;
+                }}
+                .movie {{
+                    flex: 0 0 auto;
+                    width: 160px;
+                    text-align: center;
+                    position: relative;
+                }}
+                .movie img {{
+                    width: 100%;
                     border-radius: 1em;
-                    font-size: 1em;
+                    box-shadow: 0 0 10px #000;
+                    transition: transform 0.2s ease;
+                }}
+                .movie:hover img {{
+                    transform: scale(1.05);
+                }}
+                .plot-overlay {{
+                    display: none;
+                    position: absolute;
+                    top: 0;
+                    left: 170px;
+                    width: 280px;
+                    background: rgba(0, 0, 0, 0.85);
+                    color: #ccc;
+                    font-size: 0.9em;
+                    padding: 1em;
+                    border-radius: 1em;
+                    text-align: left;
+                    z-index: 10;
+                }}
+                .movie:hover .plot-overlay {{
+                    display: block;
+                }}
+                .meta {{
+                    font-size: 0.9em;
+                    color: #ccc;
+                    margin-top: 0.5em;
                 }}
                 .button {{
                     display: inline-block;
-                    margin: 5vw 0;
-                    padding: 4vw 6vw;
+                    margin: 2vw;
+                    padding: 1vw 2vw;
                     background: hotpink;
                     color: black;
                     font-weight: bold;
@@ -107,118 +131,110 @@ class LANCastHandler(SimpleHTTPRequestHandler):
                     border-radius: 1em;
                     font-size: 1em;
                 }}
+                a {{
+                    text-decoration: none;
+                    color: inherit;
+                }}
             </style>
-            </head>
-            """
+        </head>
+        """
+
+    def send_pretty_page(self, title, message):
+        html = f"""
+        <html>
+        {self.get_head(title)}
+        <body>
+        <h1>{message}</h1>
+        <div style="text-align:center;">
+            <a class="button" href="/">Go Back</a>
+        </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode())
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
 
         if parsed.path == "/":
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
+
+            rows_html = ""
+            for folder, movies in movie_metadata.items():
+                banner_items = ""
+                for filename, meta in movies.items():
+                    if meta.get("Poster") == "N/A":
+                        continue
+                    rel_path = os.path.join(folder, filename)
+                    plot = meta['Plot'].replace('"', '&quot;')
+                    banner_items += f"""
+                    <div class="movie">
+                        <a href="/cast?file={urllib.parse.quote(rel_path)}">
+                            <img src="{meta['Poster']}" alt="{meta['Title']}">
+                        </a>
+                        <div class="plot-overlay">{plot}</div>
+                        <div class="meta">
+                            <strong>{meta['Title']}</strong><br>
+                            ⭐ {meta['IMDb Rating']}
+                        </div>
+                    </div>
+                    """
+                if banner_items:
+                    rows_html += f"<h2>📁 {folder}</h2><div class='banner'>{banner_items}</div>"
+
             html = f"""
             <html>
-            {get_head("Movie Caster")}
+            {self.get_head()}
             <body>
-            <h1>This is for my love whom I love.</h1>
-            <ul>{self.list_files()}</ul><br><br>
-            <a class="stop-button" href="/stop">Stop Cast</a>
-            <a class="playpause-button" href="/playpause">PLAY/PAUSE</a>
-            </body></html>
+                <h1>This is for my love whom I love</h1>
+                {rows_html}
+                <div style="text-align:center;">
+                    <a class="button" href="/stop">Stop Cast</a>
+                    <a class="button" href="/playpause">Play/Pause</a>
+                </div>
+            </body>
+            </html>
             """
             self.wfile.write(html.encode())
-
-        elif parsed.path == "/navigate":
-            dirname = params.get("dir", [""])[0]
-            if dirname == "..":
-                new_path = os.path.dirname(current_path)
-                if os.path.commonpath([new_path, os.path.abspath(MEDIA_DIR)]) == os.path.abspath(MEDIA_DIR):
-                    current_path = new_path
-            else:
-                new_path = os.path.join(current_path, dirname)
-                if os.path.isdir(new_path):
-                    current_path = new_path
-
-            self.send_response(302)
-            self.send_header("Location", "/")
-            self.end_headers()
 
         elif parsed.path == "/cast":
             filename = params.get("file", [None])[0]
             if filename:
-                file_path = os.path.abspath(os.path.join(current_path, filename))
-                if not os.path.isfile(file_path):
-                    self.send_error(404, "File not found")
-                    return
-
+                full_path = os.path.abspath(os.path.join(MEDIA_DIR, filename))
                 try:
-                    subprocess.Popen(["catt", "--device", CHROMECAST_NAME, "cast", file_path])
+                    subprocess.Popen([CATT_PATH, "--device", CHROMECAST_NAME, "cast", full_path])
                     self.send_response(200)
                     self.send_header("Content-type", "text/html")
                     self.end_headers()
-                    html = f"""
-                    <html>
-                    {get_head("Casting")}
-                    <body>
-                    <h2>Started casting: {filename}</h2>
-                    <a class="button" href='/'>Go back</a>
-                    </body></html>
-                    """
-                    self.wfile.write(html.encode())
+                    self.send_pretty_page("Casting", f"🎬 Now casting: {filename}")
                 except Exception as e:
-                    self.send_response(500)
-                    self.end_headers()
-                    self.wfile.write(f"<html><body><h2>Error: {str(e)}</h2><a href='/'>Go back</a></body></html>".encode())
+                    self.send_error(500, f"Casting error: {str(e)}")
             else:
                 self.send_error(400, "Missing file parameter")
 
         elif parsed.path == "/stop":
-            try:
-                subprocess.run(["catt", "--device", CHROMECAST_NAME, "stop"])
-                self.send_response(200)
-                self.send_header("Content-type", "text/html")
-                self.end_headers()
-                html = f"""
-                <html>
-                {get_head("Stopped")}
-                <body>
-                <h2>Stopped casting</h2>
-                <a class="button" href='/'>Go back</a>
-                </body></html>
-                """
-                self.wfile.write(html.encode())
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(f"<html><body><h2>Error stopping cast: {str(e)}</h2><a href='/'>Go back</a></body></html>".encode())
+            subprocess.run([CATT_PATH, "--device", CHROMECAST_NAME, "stop"])
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.send_pretty_page("Stopped", "🛑 Stopped casting.")
 
         elif parsed.path == "/playpause":
-            try:
-                subprocess.run(["catt", "--device", CHROMECAST_NAME, "play_toggle"])
-                self.send_response(200)
-                self.send_header("Content-type", "text/html")
-                self.end_headers()
-                html = f"""
-                <html>
-                {get_head("Toggled Playback")}
-                <body>
-                <h2>Playback toggled</h2>
-                <a class="button" href='/'>Go back</a>
-                </body></html>
-                """
-                self.wfile.write(html.encode())
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(f"<html><body><h2>Error toggling playback: {str(e)}</h2><a href='/'>Go back</a></body></html>".encode())
+            subprocess.run([CATT_PATH, "--device", CHROMECAST_NAME, "play_toggle"])
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.send_pretty_page("Toggled", "⏯️ Playback toggled.")
 
         else:
-            super().do_GET()
+            self.send_error(404, "Not found")
 
-def run():
-    server_address = (PI_IP, PORT)
-    httpd = HTTPServer(server_address, LANCastHandler)
-    print(f"Serving on http://{PI_IP}:{PORT}/")
-    httpd.serve_forever()
-
+# === RUN SERVER ===
 if __name__ == "__main__":
-    run()
+    load_metadata()
+    server_address = (PI_IP, PORT)
+    print(f"🎬 Serving on http://{PI_IP}:{PORT}/")
+    HTTPServer(server_address, BannerHandler).serve_forever()
