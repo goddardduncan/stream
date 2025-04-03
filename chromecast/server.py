@@ -4,19 +4,23 @@ import re
 import urllib.parse
 import requests
 import subprocess
+import json
 from collections import defaultdict
 
 # === CONFIG ===
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 MEDIA_DIR = os.path.join(APP_ROOT, "media")
+CACHE_FILE = os.path.join(APP_ROOT, "metadata_cache.json")
 PI_IP = "192.168.68.71"
 PORT = 8000
 CHROMECAST_NAME = "Living Room TV"
 OMDB_API_KEY = "98eb08a4"
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".avi", ".m4v")
-CATT_PATH = "/home/duncan/.local/bin/catt"  # Adjust if needed
+CATT_PATH = "/home/duncan/.local/bin/catt"  # Adjust this if different
 
+# === METADATA CACHE ===
 movie_metadata = defaultdict(dict)
+metadata_cache = {}
 
 def clean_title(filename):
     filename = os.path.splitext(filename)[0]
@@ -26,23 +30,32 @@ def clean_title(filename):
     return filename.strip()
 
 def fetch_movie_info(title):
+    if title in metadata_cache:
+        return metadata_cache[title]
     url = f"http://www.omdbapi.com/?apikey={OMDB_API_KEY}&t={urllib.parse.quote(title)}"
     try:
         r = requests.get(url)
         data = r.json()
         if data.get("Response") == "True":
-            return {
+            info = {
                 "Title": data.get("Title"),
                 "Year": data.get("Year"),
                 "IMDb Rating": data.get("imdbRating"),
                 "Plot": data.get("Plot"),
                 "Poster": data.get("Poster"),
             }
+            metadata_cache[title] = info
+            return info
     except Exception as e:
         print("Fetch error:", e)
     return None
 
 def load_metadata():
+    global metadata_cache
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, 'r') as f:
+            metadata_cache = json.load(f)
+
     for root, _, files in os.walk(MEDIA_DIR):
         folder = os.path.relpath(root, MEDIA_DIR)
         for file in files:
@@ -52,6 +65,9 @@ def load_metadata():
                     info = fetch_movie_info(title)
                     if info:
                         movie_metadata[folder][file] = info
+
+    with open(CACHE_FILE, 'w') as f:
+        json.dump(metadata_cache, f, indent=2)
 
 class BannerHandler(SimpleHTTPRequestHandler):
     def get_head(self, title="Movie Caster"):
@@ -178,12 +194,12 @@ class BannerHandler(SimpleHTTPRequestHandler):
                         <div class="plot-overlay">{plot}</div>
                         <div class="meta">
                             <strong>{meta['Title']}</strong><br>
-                            ⭐ {meta['IMDb Rating']}
+                            IMDB {meta['IMDb Rating']}
                         </div>
                     </div>
                     """
                 if banner_items:
-                    rows_html += f"<h2>📁 {folder}</h2><div class='banner'>{banner_items}</div>"
+                    rows_html += f"<h2>{folder}</h2><div class='banner'>{banner_items}</div>"
 
             html = f"""
             <html>
@@ -209,7 +225,7 @@ class BannerHandler(SimpleHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header("Content-type", "text/html")
                     self.end_headers()
-                    self.send_pretty_page("Casting", f"🎬 Now casting: {filename}")
+                    self.send_pretty_page("Casting", f"Now casting: {filename}")
                 except Exception as e:
                     self.send_error(500, f"Casting error: {str(e)}")
             else:
@@ -220,14 +236,14 @@ class BannerHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
-            self.send_pretty_page("Stopped", "🛑 Stopped casting.")
+            self.send_pretty_page("Stopped", "Stopped casting.")
 
         elif parsed.path == "/playpause":
             subprocess.run([CATT_PATH, "--device", CHROMECAST_NAME, "play_toggle"])
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
-            self.send_pretty_page("Toggled", "⏯️ Playback toggled.")
+            self.send_pretty_page("Toggled", "Playback toggled.")
 
         else:
             self.send_error(404, "Not found")
