@@ -1,0 +1,16 @@
+[Unit]
+Description=MovieCast HLS Server
+After=network.target
+
+[Service]
+WorkingDirectory=/home/duncan/MovieCast
+ExecStart=/usr/bin/python3 /home/duncan/MovieCast/server3.py
+Restart=always
+User=duncan
+Group=duncan
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
