@@ -1,0 +1,14 @@
+[Unit]
+Description=Start MovieCast server on boot
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/duncan/MovieCast/server.py
+WorkingDirectory=/home/duncan/MovieCast
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=duncan
+
+[Install]
+WantedBy=multi-user.target
