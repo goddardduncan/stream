@@ -174,7 +174,7 @@ def generate_html():
         for filename in files:
             title = os.path.splitext(filename)[0]
             rel_path = urllib.parse.quote(os.path.join("survivor", filename))
-            row += movie_div(rel_path, "reel.png", title)
+            row += movie_div(rel_path, "https://plus.unsplash.com/premium_photo-1710409625244-e9ed7e98f67b?fm=jpg&q=60&w=3000&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1yZWxhdGVkfDF8fHxlbnwwfHx8fHw%3D", title)
         if row:
             survivor_row = f"<h2>Saves</h2><div class='banner'>{row}</div>"
 
