@@ -65,6 +65,8 @@ def load_metadata():
         except: pass
     for root, _, files in os.walk(MEDIA_DIR):
         folder = os.path.relpath(root, MEDIA_DIR)
+        if folder.lower() == "survivor":
+            continue  # Skip survivor folder in OMDb scan
         for file in sorted(files):
             if file.lower().endswith(VIDEO_EXTENSIONS):
                 title = clean_title(file)
@@ -152,21 +154,37 @@ class HLSHandler(SimpleHTTPRequestHandler):
             return SimpleHTTPRequestHandler.do_GET(self)
 
 def generate_html():
-    movie_rows = ""
-    for folder, movies in movie_metadata.items():
+    def movie_div(path, poster, title, show_imdb=False, imdb=""):
+        return f'''
+        <div class="movie" data-path="{path}" onclick="handleClick(this)">
+            <div class="flag"></div>
+            <img src="{poster}" alt="{title}">
+            <div class="meta"><strong>{title}</strong>{'<br>IMDB ' + imdb if show_imdb else ''}</div>
+        </div>'''
+
+    # Survivor Row
+    survivor_folder = os.path.join(MEDIA_DIR, "survivor")
+    survivor_row = ""
+    if os.path.isdir(survivor_folder):
+        files = [f for f in sorted(os.listdir(survivor_folder)) if f.lower().endswith(VIDEO_EXTENSIONS)]
+        row = ""
+        for filename in files:
+            title = os.path.splitext(filename)[0]
+            rel_path = urllib.parse.quote(os.path.join("survivor", filename))
+            row += movie_div(rel_path, "reel.png", title)
+        if row:
+            survivor_row = f"<h2>Saves</h2><div class='banner'>{row}</div>"
+
+    # Standard Movies
+    standard_rows = ""
+    for folder in sorted(k for k in movie_metadata if k != "survivor"):
+        movies = movie_metadata[folder]
         row = ""
         for filename, meta in movies.items():
-            safe_path = os.path.join(folder, filename)
-            rel_encoded = urllib.parse.quote(safe_path)
-            row += f'''
-            <div class="movie" data-path="{rel_encoded}" onclick="handleClick(this)">
-                <div class="flag"></div>
-                <img src="{meta['Poster']}" alt="{meta['Title']}">
-                <div class="meta"><strong>{meta['Title']}</strong><br>IMDB {meta['IMDb Rating']}</div>
-            </div>
-            '''
+            rel_path = urllib.parse.quote(os.path.join(folder, filename))
+            row += movie_div(rel_path, meta['Poster'], meta['Title'], show_imdb=True, imdb=meta['IMDb Rating'])
         if row:
-            movie_rows += f"<h2>{folder}</h2><div class='banner'>{row}</div>"
+            standard_rows += f"<h2>{folder}</h2><div class='banner'>{row}</div>"
 
     return f"""
     <html>
@@ -192,9 +210,7 @@ def generate_html():
                 box-shadow: 0 0 10px #000;
                 transition: transform 0.2s ease;
             }}
-            .movie:hover img {{
-                transform: scale(1.05);
-            }}
+            .movie:hover img {{ transform: scale(1.05); }}
             .meta {{ font-size: 0.9em; color: #ccc; margin-top: 0.5em; }}
             .flag {{
                 position: absolute;
@@ -219,7 +235,9 @@ def generate_html():
     <body>
         <h1>Stream for my love</h1>
         <video id="player" controls playsinline preload="metadata" crossorigin="anonymous"></video>
-        {movie_rows}
+        
+        {standard_rows}
+	{survivor_row}
         <script>
             const statuses = {{}};
             const pollingInterval = 15000;
@@ -298,7 +316,7 @@ def generate_html():
                 setInterval(pollStatuses, pollingInterval);
             }};
         </script>
-	<div style="position: fixed; bottom: 20px; right: 20px;">
+        <div style="position: fixed; bottom: 20px; right: 20px;">
 		  <a href="http://100.107.223.221:8000/" title="Cast to TV">
     		<svg xmlns="http://www.w3.org/2000/svg" height="36" width="36" viewBox="0 0 24 24" fill="#ccc">
       		<path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-3v2c2.76 0 5 2.24 5 5h2c0-3.86-3.14-7-7-7zm0-3v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zM21 3H3c-1.1 0-2 .9-2 2v4h2V5h18v14h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
