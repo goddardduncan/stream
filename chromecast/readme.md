@@ -2,3 +2,5 @@ App to read the SD card called EASYROMS "/Volumes/EASYROMS/movies" in my Macbook
 
 Requires CATT (Cast All The Things) to be installed.
 https://github.com/skorokithakis/catt
+
+server.py runs an app that is specific to casting media from ROOT/media/ to chromecast that can be accessed through browser.
