@@ -5,4 +5,4 @@ App banner displays movies in */media/* folder and converts them into 10 second 
 
 Plays movies when "green flagged" movie selected from library.
 
-
+Server.py in the *chromecast* folder of this repo does much the same thing but uses CATT and pychromecast to control a chromecast while streaming media.
