@@ -154,13 +154,16 @@ class HLSHandler(SimpleHTTPRequestHandler):
             return SimpleHTTPRequestHandler.do_GET(self)
 
 def generate_html():
-    def movie_div(path, poster, title, show_imdb=False, imdb=""):
+    def movie_div(path, poster, title, plot="", show_imdb=False, imdb=""):
+        plot_html = f'<div class="plot-overlay">{plot}</div>' if plot else ''
         return f'''
         <div class="movie" data-path="{path}" onclick="handleClick(this)">
             <div class="flag"></div>
             <img src="{poster}" alt="{title}">
+            {plot_html}
             <div class="meta"><strong>{title}</strong>{'<br>IMDB ' + imdb if show_imdb else ''}</div>
         </div>'''
+
 
     # Survivor Row
     survivor_folder = os.path.join(MEDIA_DIR, "survivor")
@@ -182,7 +185,8 @@ def generate_html():
         row = ""
         for filename, meta in movies.items():
             rel_path = urllib.parse.quote(os.path.join(folder, filename))
-            row += movie_div(rel_path, meta['Poster'], meta['Title'], show_imdb=True, imdb=meta['IMDb Rating'])
+            plot = meta['Plot'].replace('"', '&quot;')
+            row += movie_div(rel_path, meta['Poster'], meta['Title'], plot=plot, show_imdb=True, imdb=meta['IMDb Rating'])
         if row:
             standard_rows += f"<h2>{folder}</h2><div class='banner'>{row}</div>"
 
@@ -211,6 +215,8 @@ def generate_html():
                 transition: transform 0.2s ease;
             }}
             .movie:hover img {{ transform: scale(1.05); }}
+	   .plot-overlay {{ display: none; position: absolute; top: 0; left: 170px; width: 280px; background: rgba(0, 0, 0, 0.85); color: #ccc; font-size: 0.9em; padding: 1em; border-radius: 1em; text-align: left; z-index: 10; }}
+            .movie:hover .plot-overlay {{ display: block; }} 
             .meta {{ font-size: 0.9em; color: #ccc; margin-top: 0.5em; }}
             .flag {{
                 position: absolute;
