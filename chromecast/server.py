@@ -139,14 +139,17 @@ class BannerHandler(SimpleHTTPRequestHandler):
                 h1 {{ color: hotpink; text-align: center; margin: 2vw; }}
                 h2 {{ color: #6cf; margin: 1vw 2vw 0.5vw; }}
                 .banner {{ display: flex; overflow-x: auto; gap: 20px; padding: 2vw; scroll-behavior: smooth; }}
-                .movie {{ flex: 0 0 auto; width: 160px; text-align: center; position: relative; }}
+                .movie {{ flex: 0 0 auto; width: 160px; text-align: center; position: relative; scroll-snap-align: center;}}
                 .movie img {{ width: 100%; border-radius: 1em; box-shadow: 0 0 10px #000; transition: transform 0.2s ease; }}
-                .movie:hover img {{ transform: scale(1.05); }}
+                .movie:hover img {{ transform: scale(1.15); }}
+                .movie.selected img {{ transform: scale(1.15); }}
+                .movie.selected .plot-overlay {{ display: block;}}
                 .plot-overlay {{ display: none; position: absolute; top: 0; left: 170px; width: 280px; background: rgba(0, 0, 0, 0.85); color: #ccc; font-size: 0.9em; padding: 1em; border-radius: 1em; text-align: left; z-index: 10; }}
                 .movie:hover .plot-overlay {{ display: block; }}
                 .meta {{ font-size: 0.9em; color: #ccc; margin-top: 0.5em; }}
                 .button {{ display: inline-block; margin: 2vw; padding: 1vw 2vw; background: hotpink; color: black; font-weight: bold; text-decoration: none; border-radius: 1em; font-size: 1em; }}
                 .toggle {{ display: block; margin: 2vw auto; text-align: center; font-size: 1em; }}
+
             </style>
         </head>
         """
@@ -156,14 +159,27 @@ class BannerHandler(SimpleHTTPRequestHandler):
         <html>
         {self.get_head(title)}
         <body>
-        <h1>{message}</h1>
-        <div style=\"text-align:center;\">
-            <a class=\"button\" href=\"/\">Go Back</a>
-        </div>
+            <h1>{message}</h1>
+            <div style="text-align:center;">
+                <a class="button" id="backBtn" href="/">Go Back</a>
+            </div>
+            <script>
+            document.addEventListener("keydown", function(e) {{
+                const key = e.key.toLowerCase();
+                if (key === "enter") {{
+                    const backBtn = document.getElementById("backBtn");
+                if (backBtn) backBtn.click();
+                }} else if (key === "contextmenu") {{
+		e.preventDefault();
+                fetch("/playpause");
+                }}
+            }});
+            </script>
         </body>
         </html>
         """
         self.wfile.write(html.encode())
+
 
     def do_GET(self):
         global autoplay_enabled
@@ -228,7 +244,90 @@ class BannerHandler(SimpleHTTPRequestHandler):
             toggle_label = (
                 "Autoplay next episode" if autoplay_enabled else "Autoplay is BROKEN"
             )
+            keyboard_script = """
+            let selectedIndex = -1;
+let rowIndex = 0;
+let rows = [];
+let movieElements = [];
 
+document.addEventListener("DOMContentLoaded", () => {
+    rows = Array.from(document.querySelectorAll('.banner'));
+    movieElements = Array.from(rows[0].querySelectorAll('.movie'));
+    highlightSelected();
+
+    document.addEventListener("keydown", (e) => {
+        const key = e.key.toLowerCase();
+
+        if (key === "arrowright") {
+            selectedIndex = (selectedIndex + 1) % movieElements.length;
+            highlightSelected();
+        } else if (key === "arrowleft") {
+            selectedIndex = (selectedIndex - 1 + movieElements.length) % movieElements.length;
+            highlightSelected();
+        } else if (key === "arrowdown") {
+            if (rowIndex < rows.length - 1) {
+                rowIndex++;
+                updateRow();
+            }
+        } else if (key === "arrowup") {
+            if (rowIndex > 0) {
+                rowIndex--;
+                updateRow();
+            }
+        } else if (key === "enter") {
+            const link = movieElements[selectedIndex].querySelector('a');
+            if (link) link.click();
+        } else if (key === "contextmenu") {
+		e.preventDefault();
+            fetch("/playpause");
+        }
+    });
+
+    function updateRow() {
+        const oldLength = movieElements.length;
+        movieElements = Array.from(rows[rowIndex].querySelectorAll('.movie'));
+        selectedIndex = Math.min(selectedIndex, movieElements.length - 1);
+        highlightSelected();
+        rows[rowIndex].scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+            inline: "center"
+        });
+    }
+
+        function highlightSelected() {
+        document.querySelectorAll('.movie').forEach(el => el.classList.remove("selected"));
+        const el = movieElements[selectedIndex];
+        if (el) {
+            el.classList.add("selected");
+
+            // Get poster's position relative to the page
+            const rect = el.getBoundingClientRect();
+            const absoluteTop = window.scrollY + rect.top;
+            const offset = absoluteTop - (window.innerHeight / 2) + (rect.height / 2);
+
+            window.scrollTo({
+                top: offset,
+                behavior: "auto"
+            });
+
+           // Horizontal scroll (center movie in banner)
+    const container = rows[rowIndex];
+    const elOffset = el.offsetLeft;
+    const elWidth = el.offsetWidth;
+    const containerWidth = container.clientWidth;
+
+    const scrollLeftTarget = elOffset - (containerWidth / 2) + (elWidth / 2);
+
+    container.scrollTo({
+        left: scrollLeftTarget,
+        behavior: "auto"  // or "smooth"
+    });
+        }
+    }
+
+});
+            """
             slider_script = """
 const sliderContainer = document.createElement("div");
 sliderContainer.id = "slider-container";
@@ -317,7 +416,8 @@ setInterval(pollStatus, 2000);
                 head=self.get_head(),
                 rows=rows_html,
                 toggle=toggle_label,
-                script=slider_script,
+                script=slider_script + keyboard_script,
+               
             )
 
             self.wfile.write(html.encode())
