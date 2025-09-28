@@ -31,6 +31,29 @@ last_cast = {"folder": None, "file": None}
 chromecast = None
 media_controller = None
 
+def connect_chromecast():
+    global chromecast, media_controller, last_chromecast_failure
+
+    if chromecast and hasattr(chromecast, "media_controller"):
+        return  # Already connected and valid
+
+    try:
+        print(f"🔍 Discovering Chromecast named '{CHROMECAST_NAME}'...")
+        chromecasts, browser = pychromecast.get_listed_chromecasts(friendly_names=[CHROMECAST_NAME])
+        if not chromecasts:
+            raise Exception(f"Chromecast '{CHROMECAST_NAME}' not found.")
+
+        chromecast = chromecasts[0]
+        chromecast.wait()
+        media_controller = chromecast.media_controller
+        last_chromecast_failure = None
+        print(f"✅ Connected to {CHROMECAST_NAME}")
+    except Exception as e:
+        chromecast = None
+        media_controller = None
+        last_chromecast_failure = str(e)
+        print(f"❌ Connection failed: {e}")
+        raise
 
 def clean_title(filename):
     filename = os.path.splitext(filename)[0]
@@ -350,23 +373,69 @@ document.addEventListener("DOMContentLoaded", () => {
             self.send_header("Location", "/")
             self.end_headers()
 
+
         elif parsed.path == "/cast":
-            filename = params.get("file", [None])[0]
-            if filename:
-                full_path = os.path.abspath(os.path.join(MEDIA_DIR, filename))
-                folder = os.path.relpath(os.path.dirname(full_path), MEDIA_DIR)
-                file = os.path.basename(full_path)
-                try:
-                    subprocess.Popen([CATT_PATH, "--device", CHROMECAST_NAME, "cast", full_path])
-                    last_cast["folder"] = folder
-                    last_cast["file"] = file
-                    
-                    self.send_response(200)
-                    self.send_header("Content-type", "text/html")
-                    self.end_headers()
-                    self.send_pretty_page("Casting", f"Now casting: {file}")
-                except Exception as e:
-                    self.send_error(500, f"Casting error: {str(e)}")
+                filename = params.get("file", [None])[0]
+                if filename:
+                        full_path = os.path.abspath(os.path.join(MEDIA_DIR, filename))
+                        folder = os.path.relpath(os.path.dirname(full_path), MEDIA_DIR)
+                        file = os.path.basename(full_path)
+                        try:
+                                connect_chromecast()
+
+                                # Check if something is currently playing or paused
+                                try:
+                                        media_controller.update_status()
+                                        if media_controller.status.player_state in ("PLAYING", "PAUSED", "BUFFERING"):
+                                                print("⏹ Stopping current media first...")
+                                                media_controller.stop()
+                                                # Give Chromecast a brief moment to settle before casting new file
+                                                threading.Timer(1.0, lambda: subprocess.Popen([
+                                                        CATT_PATH, "--device", CHROMECAST_NAME, "cast", full_path
+                                                ])).start()
+                                        else:
+                                                # Nothing playing, cast immediately
+                                                subprocess.Popen([
+                                                        CATT_PATH, "--device", CHROMECAST_NAME, "cast", full_path
+                                                ])
+                                except Exception as stop_err:
+                                        print("⚠️ Could not update status or stop media:", stop_err)
+                                        # Still attempt to cast anyway
+                                        subprocess.Popen([
+                                                CATT_PATH, "--device", CHROMECAST_NAME, "cast", full_path
+                                        ])
+
+                                last_cast["folder"] = folder
+                                last_cast["file"] = file
+#                                schedule_next_episode(folder, file)
+
+                                self.send_response(200)
+                                self.send_header("Content-type", "text/html")
+                                self.end_headers()
+                                self.send_pretty_page("Casting", f"Now casting: {file}")
+
+                        except Exception as e:
+                                self.send_error(500, f"Casting error: {str(e)}")
+                else:
+                        self.send_error(400, "Missing file parameter")
+
+#        elif parsed.path == "/cast":
+#            filename = params.get("file", [None])[0]
+#            if filename:
+#                full_path = os.path.abspath(os.path.join(MEDIA_DIR, filename))
+#                folder = os.path.relpath(os.path.dirname(full_path), MEDIA_DIR)
+#                file = os.path.basename(full_path)
+#                try:
+#                    subprocess.Popen([CATT_PATH, "--device", CHROMECAST_NAME, "cast", full_path])
+#                    last_cast["folder"] = folder
+#                    last_cast["file"] = file
+#                    
+#                    self.send_response(200)
+#                    self.send_header("Content-type", "text/html")
+#                    self.end_headers()
+#                    self.send_pretty_page("Casting", f"Now casting: {file}")
+#                except Exception as e:
+#                    self.send_error(500, f"Casting error: {str(e)}")
         elif parsed.path == "/playpause":
                 try:
                     subprocess.run([CATT_PATH, "--device", CHROMECAST_NAME, "play_toggle"])
