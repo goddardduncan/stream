@@ -10,6 +10,8 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from collections import defaultdict
 import mimetypes
 import requests
+import ipaddress
+
 
 APP_ROOT = os.getcwd()
 MEDIA_DIR = os.path.join(APP_ROOT, "media")
@@ -114,6 +116,16 @@ def cleanup_old_hls():
                 hls_last_access.pop(folder)
 
 class HLSHandler(SimpleHTTPRequestHandler):
+    def _get_client_ip(self):
+        # Honor X-Forwarded-For if behind a proxy; fall back to socket address
+        xfwd = self.headers.get('X-Forwarded-For')
+        if xfwd:
+            # Use the left-most IP if multiple
+            ip = xfwd.split(',')[0].strip()
+        else:
+            ip = self.client_address[0]
+        return ip
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
@@ -148,15 +160,26 @@ class HLSHandler(SimpleHTTPRequestHandler):
             return SimpleHTTPRequestHandler.do_GET(self)
 
         elif parsed.path == "/" or parsed.path == "/index.html":
+            client_ip = self._get_client_ip()
+            try:
+                ip_obj = ipaddress.ip_address(client_ip)
+            except ValueError:
+                ip_obj = None
+
+            # Decide the TV button target
+            tv_url = "http://192.168.68.71:8020"
+            if ip_obj and ip_obj.version == 4:
+                if ip_obj in ipaddress.ip_network("10.8.0.0/24"):
+                    tv_url = "http://10.8.0.4:8020"
+
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
-            self.wfile.write(generate_html().encode())
-
+            self.wfile.write(generate_html(tv_url).encode())
         else:
             return SimpleHTTPRequestHandler.do_GET(self)
 
-def generate_html():
+def generate_html(tv_url):
     def movie_div(path, poster, title, plot="", show_imdb=False, imdb=""):
         plot_html = f'<div class="plot-overlay">{plot}</div>' if plot else ''
         return f'''
@@ -245,7 +268,15 @@ def generate_html():
     <body>
         <h1>Stream for my love</h1>
         <video id="player" controls playsinline preload="metadata" crossorigin="anonymous"></video>
-        
+            <h2>TV Shows</h2>
+            <div class='banner'>
+                <div class="movie">
+                    <a href="{tv_url}">
+                        <img src="https://variety.com/wp-content/uploads/2024/01/100-Greatest-TV-Shows-V1-2.jpg?w=1024" alt="TV Shows" style="width: 300px; border-radius: 10px; box-shadow: 2px 2px 8px #000;">
+                    </a>
+                    <div class="meta"><strong><br>Select to see shows</strong></div>
+                </div>
+            </div>        
         {standard_rows}
 	{survivor_row}
         <script>
